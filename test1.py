@@ -1,35 +1,55 @@
-import multiprocessing
+from multiprocessing import Process, Lock, shared_memory
+import array
 
-def process_file(file_path, result_queue):
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            line_count = sum(1 for line in file)
-        result_queue.put((file_path, line_count))
-    except FileNotFoundError:
-        result_queue.put((file_path, "Файл не найден"))
-    except Exception as e:
-        result_queue.put((file_path, f"Ошибка: {e}"))
+def process_element(shm_name, array_length, index, lock):
+    shm = shared_memory.SharedMemory(name=shm_name)
+    shared_buffer = shm.buf
 
+    with lock:
+        start = index * 4
+        num = int.from_bytes(shared_buffer[start:start + 4], byteorder='little')
+        result = num ** 2
+        shared_buffer[start:start + 4] = result.to_bytes(4, byteorder='little')
+        current_state = []
+        for i in range(array_length):
+            pos = i * 4
+            current_state.append(int.from_bytes(shared_buffer[pos:pos + 4], byteorder='little'))
+        print(f'Процесс изменил массив: {current_state}')
 
-def main():
-    file_paths = ["file1.txt", "file2.txt", "file3.txt"]
-    result_queue = multiprocessing.Queue()
+    shm.close()
+
+if __name__ == '__main__':
+    data = array.array('i', [1, 4, 9])
+    array_length = len(data)
+    buffer_size = array_length * 4
+
+    shm = shared_memory.SharedMemory(create=True, size=buffer_size)
+
+    shared_buffer = shm.buf
+    for i, val in enumerate(data):
+        shared_buffer[i * 4:(i + 1) * 4] = val.to_bytes(4, byteorder='little')
+
+    lock = Lock()
     processes = []
 
-    for file_path in file_paths:
-        process = multiprocessing.Process(
-            target=process_file,
-            args=(file_path, result_queue)
+    for i in range(array_length):
+        p = Process(
+            target=process_element,
+            args=(shm.name, array_length, i, lock)
         )
-        processes.append(process)
-        process.start()
+        processes.append(p)
+        p.start()
 
-    for process in processes:
-        process.join()
+    for p in processes:
+        p.join()
 
-    while not result_queue.empty():
-        file_path, line_count = result_queue.get()
-        print(f"Количество строк в файле: {file_path}: {line_count}.")
+    final_array = []
+    for i in range(array_length):
+        pos = i * 4
+        final_array.append(
+            int.from_bytes(shared_buffer[pos:pos + 4], byteorder='little')
+        )
+    print(f'\nИсходный массив после изменений: {final_array}')
 
-if __name__ == "__main__":
-    main()
+    shm.close()
+    shm.unlink()
