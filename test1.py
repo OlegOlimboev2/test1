@@ -29,7 +29,7 @@ def main():
 
     while not result_queue.empty():
         file_path, line_count = result_queue.get()
-        print(f"{file_path}: {line_count} lines")
+        print(f"Количество строк в файле: {file_path}: {line_count}.")
 
 if __name__ == "__main__":
     main()
